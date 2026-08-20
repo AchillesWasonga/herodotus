@@ -409,22 +409,22 @@
           <div class="eyebrow">Internal Downloader</div>
           <h1>Download cleanly, save locally, keep the context.</h1>
           <p class="lede">
-            Paste a YouTube or Instagram Reel link, choose where it should land,
-            and optionally apply a watermark. The app saves the video locally
-            and keeps metadata alongside supported downloads.
+            Paste a video link from YouTube, Instagram, or hundreds of other
+            supported sites, choose where it should land, and the app saves
+            the video locally with metadata alongside it.
           </p>
           <div class="hero-grid">
             <div class="mini-card">
               <strong>Supported</strong>
-              <span>YouTube videos, YouTube Shorts, Instagram Reels</span>
+              <span>YouTube, Instagram, and hundreds of other video platforms</span>
             </div>
             <div class="mini-card">
               <strong>Output</strong>
               <span>Highest available MP4 plus metadata where supported</span>
             </div>
             <div class="mini-card">
-              <strong>Instagram note</strong>
-              <span>Some reels require a logged-in browser session to access.</span>
+              <strong>Login-required sites</strong>
+              <span>Some sources need a logged-in browser session to access.</span>
             </div>
           </div>
         </div>
@@ -433,7 +433,7 @@
       <div class="layout">
         <section class="panel">
           <h2>Download Request</h2>
-          <p>Choose the source, destination, and watermark behavior for this run.</p>
+          <p>Choose the source and destination for this run.</p>
 
           <form method="post" id="download-form">
             <div class="full">
@@ -442,27 +442,15 @@
                 id="url"
                 name="url"
                 type="text"
-                placeholder="https://www.youtube.com/watch?v=... or https://www.instagram.com/reel/..."
+                placeholder="https://www.youtube.com/watch?v=... or any other video link"
                 value="{{ state.url }}"
                 required
               />
-              <div class="field-help">Paste a direct YouTube or Instagram reel URL.</div>
+              <div class="field-help">Paste a direct video URL from any supported site.</div>
             </div>
 
-            <div>
-              <label for="platform">Platform</label>
-              <select id="platform" name="platform">
-                {% for item in platform_choices %}
-                <option value="{{ item }}" {% if state.platform == item %}selected{% endif %}>
-                  {{ item }}
-                </option>
-                {% endfor %}
-              </select>
-              <div class="field-help">Use <code>auto</code> unless you need to override detection.</div>
-            </div>
-
-            <div id="browser-field">
-              <label for="browser">Instagram Browser Cookies</label>
+            <div class="full">
+              <label for="browser">Browser Cookies</label>
               <select id="browser" name="browser">
                 {% for item in browser_choices %}
                 <option value="{{ item }}" {% if state.browser == item %}selected{% endif %}>
@@ -470,7 +458,7 @@
                 </option>
                 {% endfor %}
               </select>
-              <div class="field-help">Choose a logged-in browser if Instagram blocks public access.</div>
+              <div class="field-help">Choose a logged-in browser if the source blocks public access.</div>
             </div>
 
             <div class="full">
@@ -483,52 +471,6 @@
                 placeholder="{{ state.output_dir }}"
               />
               <div class="field-help">Absolute paths work best. The folder will be created if needed.</div>
-            </div>
-
-            <div class="full">
-              <div class="toggle-row">
-                <input
-                  id="watermark_enabled"
-                  name="watermark_enabled"
-                  type="checkbox"
-                  {% if state.watermark_enabled %}checked{% endif %}
-                />
-                <label for="watermark_enabled">Enable watermark</label>
-              </div>
-            </div>
-
-            <div class="watermark-field">
-              <label for="watermark_file">Watermark File Path</label>
-              <input
-                id="watermark_file"
-                name="watermark_file"
-                type="text"
-                value="{{ state.watermark_file }}"
-              />
-              <div class="field-help">PNG works best. You can paste another brand asset here later.</div>
-            </div>
-
-            <div class="watermark-field">
-              <label for="watermark_position">Watermark Position</label>
-              <select id="watermark_position" name="watermark_position">
-                {% for item in position_choices %}
-                <option value="{{ item }}" {% if state.watermark_position == item %}selected{% endif %}>
-                  {{ item }}
-                </option>
-                {% endfor %}
-              </select>
-              <div class="field-help">Top-left is the current default for Eval exports.</div>
-            </div>
-
-            <div class="full watermark-field">
-              <label for="watermark_presets">Detected watermark files in repo root</label>
-              <select id="watermark_presets">
-                <option value="">Select a preset...</option>
-                {% for item in watermark_files %}
-                <option value="{{ item }}">{{ item }}</option>
-                {% endfor %}
-              </select>
-              <div class="field-help">Choosing a preset fills the watermark path field for you.</div>
             </div>
 
             <div class="full submit-row">
@@ -546,12 +488,12 @@
               <p>You will see the saved video path, any metadata path, and the destination folder.</p>
             </div>
             <div class="sidebar-card">
-              <h3>Instagram restrictions</h3>
-              <p>If Instagram refuses public access, choose <code>safari</code> or <code>chrome</code> and make sure that browser is logged into Instagram.</p>
+              <h3>Login-required sources</h3>
+              <p>If a site refuses public access, choose a browser that is already logged into that site.</p>
             </div>
             <div class="sidebar-card">
               <h3>Unavailable source</h3>
-              <p>If the reel or video is gone at the source, the downloader cannot recover it. A new URL is required.</p>
+              <p>If the video is gone at the source, the downloader cannot recover it. A new URL is required.</p>
             </div>
           </section>
 
@@ -600,42 +542,13 @@
     </div>
 
     <script>
-      const platformField = document.getElementById("platform");
-      const browserField = document.getElementById("browser-field");
-      const watermarkToggle = document.getElementById("watermark_enabled");
-      const watermarkFields = document.querySelectorAll(".watermark-field");
-      const presetField = document.getElementById("watermark_presets");
-      const watermarkPathField = document.getElementById("watermark_file");
       const form = document.getElementById("download-form");
       const submitButton = document.getElementById("submit-button");
-
-      function syncPlatformVisibility() {
-        const showBrowser = platformField.value === "instagram" || platformField.value === "auto";
-        browserField.classList.toggle("field-hidden", !showBrowser);
-      }
-
-      function syncWatermarkVisibility() {
-        watermarkFields.forEach((field) => {
-          field.classList.toggle("field-hidden", !watermarkToggle.checked);
-        });
-      }
-
-      presetField.addEventListener("change", () => {
-        if (presetField.value) {
-          watermarkPathField.value = presetField.value;
-        }
-      });
-
-      platformField.addEventListener("change", syncPlatformVisibility);
-      watermarkToggle.addEventListener("change", syncWatermarkVisibility);
 
       form.addEventListener("submit", () => {
         submitButton.disabled = true;
         submitButton.textContent = "Downloading...";
       });
-
-      syncPlatformVisibility();
-      syncWatermarkVisibility();
     </script>
   </body>
 </html>

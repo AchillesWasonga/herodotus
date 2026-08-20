@@ -7,11 +7,25 @@ from pathlib import Path
 
 import yt_dlp
 
-from watermark import DEFAULT_WATERMARK_PATH, WatermarkError, apply_watermark, resolve_path
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
+
+BROWSER_CHOICES = ["safari", "chrome", "firefox", "edge", "brave", "chromium"]
+
+LOGIN_REQUIRED_SIGNALS = [
+    "login required",
+    "requested content is not available",
+    "rate-limit reached",
+    "main webpage is locked behind the login page",
+    "unable to extract shared data",
+    "unable to extract additional data",
+    "is not granting access",
+    "empty media response",
+    "check if this post is accessible in your browser",
+    "sign in to confirm",
+    "private video",
+]
 
 
 def ensure_dependencies() -> None:
@@ -31,9 +45,9 @@ def resolve_output_dir(raw_output_dir: str | None) -> Path:
     return output_dir.resolve()
 
 
-def build_options(output_dir: Path) -> dict:
-    output_template = str(output_dir / "%(title)s.%(ext)s")
-    return {
+def build_options(output_dir: Path, browser: str | None) -> dict:
+    output_template = str(output_dir / "%(uploader|unknown_creator)s - %(title)s.%(ext)s")
+    opts = {
         "format": "bv*+ba/b",
         "outtmpl": output_template,
         "merge_output_format": "mp4",
@@ -41,6 +55,26 @@ def build_options(output_dir: Path) -> dict:
         "quiet": False,
         "no_warnings": False,
     }
+    if browser:
+        opts["cookiesfrombrowser"] = (browser, None, None, None)
+    return opts
+
+
+def should_retry_with_cookies(message: str) -> bool:
+    lowered = message.lower()
+    return any(signal in lowered for signal in LOGIN_REQUIRED_SIGNALS)
+
+
+def cookies_help_message(browser: str | None) -> str:
+    if browser:
+        return (
+            f"This source blocked public access even with {browser} cookies. "
+            "Try a different browser or confirm that browser is logged in."
+        )
+    return (
+        "This source requires a logged-in session. Retry with --browser "
+        "{safari,chrome,firefox,edge,brave,chromium} using a browser that is logged in."
+    )
 
 
 def find_final_output_path(
@@ -90,13 +124,11 @@ def find_final_output_path(
 
 
 def build_video_metadata(info: dict, source_url: str, final_path: Path | None) -> dict:
-    description = info.get("description")
     metadata = {
         "source_url": source_url,
         "id": info.get("id"),
         "title": info.get("title"),
-        "description": description,
-        "caption": description,
+        "description": info.get("description"),
         "uploader": info.get("uploader"),
         "uploader_id": info.get("uploader_id"),
         "channel": info.get("channel"),
@@ -124,7 +156,7 @@ def save_video_metadata(metadata: dict, output_dir: Path, final_path: Path | Non
     if final_path is not None:
         metadata_path = final_path.with_suffix(".json")
     else:
-        fallback_name = metadata.get("id") or "youtube_metadata"
+        fallback_name = metadata.get("id") or "video_metadata"
         metadata_path = output_dir / f"{fallback_name}.json"
 
     metadata_path.write_text(
@@ -134,62 +166,65 @@ def save_video_metadata(metadata: dict, output_dir: Path, final_path: Path | Non
     return metadata_path
 
 
-def download_media(
-    url: str,
-    output_dir: Path,
-    watermark_enabled: bool,
-    watermark_path: Path,
-    watermark_position: str,
-) -> None:
+def extract_and_download(url: str, output_dir: Path, browser: str | None) -> tuple[dict, yt_dlp.YoutubeDL]:
+    opts = build_options(output_dir, browser)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return info, ydl
+
+
+def download_media(url: str, output_dir: Path, browser: str | None = None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    ydl_opts = build_options(output_dir)
     started_at = time.time()
 
+    print(f"Starting download: {url}")
+    print(f"Output directory: {output_dir}")
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"Starting download: {url}")
-            print(f"Output directory: {output_dir}")
-            info = ydl.extract_info(url, download=True)
-            print("Done.")
-
-            if isinstance(info, dict):
-                final_path = find_final_output_path(info, ydl, output_dir, started_at)
-                metadata = build_video_metadata(info, url, final_path)
-                metadata_path = save_video_metadata(metadata, output_dir, final_path)
-            else:
-                final_path = None
-                metadata_path = None
-
-            if final_path is not None:
-                if watermark_enabled:
-                    print(f"Applying watermark: {watermark_path}")
-                    apply_watermark(
-                        video_path=final_path,
-                        watermark_path=watermark_path,
-                        position=watermark_position,
-                    )
-                    print(f"Watermark applied ({watermark_position}).")
-                print(f"Saved file: {final_path}")
-            else:
-                print(f"Saved file in directory: {output_dir}")
-
-            if metadata_path is not None:
-                print(f"Metadata saved: {metadata_path}")
+        info, ydl = extract_and_download(url, output_dir, None)
     except yt_dlp.utils.DownloadError as exc:
-        print(f"Download failed: {exc}")
-        sys.exit(1)
-    except WatermarkError as exc:
-        print(f"Watermarking failed: {exc}")
-        sys.exit(1)
+        message = str(exc)
+        if not should_retry_with_cookies(message):
+            print(f"Download failed: {exc}")
+            sys.exit(1)
+        if not browser:
+            print(f"Download failed: {cookies_help_message(browser)}")
+            sys.exit(1)
+        print(f"Public access blocked, retrying with {browser} cookies...")
+        try:
+            info, ydl = extract_and_download(url, output_dir, browser)
+        except yt_dlp.utils.DownloadError as retry_exc:
+            print(f"Download failed: {retry_exc}")
+            sys.exit(1)
     except Exception as exc:
         print(f"Unexpected error: {exc}")
         sys.exit(1)
+
+    print("Done.")
+
+    if isinstance(info, dict):
+        final_path = find_final_output_path(info, ydl, output_dir, started_at)
+        metadata = build_video_metadata(info, url, final_path)
+        metadata_path = save_video_metadata(metadata, output_dir, final_path)
+    else:
+        final_path = None
+        metadata_path = None
+
+    if final_path is not None:
+        print(f"Saved file: {final_path}")
+    else:
+        print(f"Saved file in directory: {output_dir}")
+
+    if metadata_path is not None:
+        print(f"Metadata saved: {metadata_path}")
 
 
 def main() -> None:
     ensure_dependencies()
 
-    parser = argparse.ArgumentParser(description="Download a YouTube/Shorts URL as MP4")
+    parser = argparse.ArgumentParser(
+        description="Download a video URL (YouTube, Instagram, and hundreds of other sites via yt-dlp) as MP4"
+    )
     parser.add_argument("url", help="Video URL")
     parser.add_argument(
         "--output-dir",
@@ -197,37 +232,16 @@ def main() -> None:
         help="Optional output directory for downloaded media",
     )
     parser.add_argument(
-        "--no-watermark",
-        action="store_true",
-        help="Disable automatic watermarking",
-    )
-    parser.add_argument(
-        "--watermark-file",
-        default=str(DEFAULT_WATERMARK_PATH),
-        help="PNG watermark image path (default: evalwhiteverfied.png)",
-    )
-    parser.add_argument(
-        "--watermark-position",
-        choices=["top-left", "top-right", "bottom-left", "bottom-right"],
-        default="top-left",
-        help="Watermark position (default: top-left)",
+        "--browser",
+        choices=BROWSER_CHOICES,
+        default=None,
+        help="Optional browser to load cookies from if the source requires a logged-in session",
     )
 
     args = parser.parse_args()
     output_dir = resolve_output_dir(args.output_dir)
-    watermark_path = resolve_path(args.watermark_file)
 
-    if not args.no_watermark and not watermark_path.exists():
-        print(f"Error: watermark file not found: {watermark_path}")
-        sys.exit(1)
-
-    download_media(
-        args.url,
-        output_dir,
-        watermark_enabled=not args.no_watermark,
-        watermark_path=watermark_path,
-        watermark_position=args.watermark_position,
-    )
+    download_media(args.url, output_dir, browser=args.browser)
 
 
 if __name__ == "__main__":
