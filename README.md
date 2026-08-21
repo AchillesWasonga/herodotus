@@ -1,4 +1,4 @@
-# mp4mp3dloader
+# herodotus
 
 An internal video downloader for YouTube, Instagram, and the hundreds of other
 sites supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp). Paste a link,
@@ -263,7 +263,7 @@ maps them to a title, a plain-language message, and suggested fixes.
 ## Project layout
 
 ```
-mp4mp3dloader/
+herodotus/
 ├── README.md              # This file
 ├── LICENSE                # MIT
 ├── requirements.txt       # yt-dlp + Flask
