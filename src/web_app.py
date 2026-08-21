@@ -4,6 +4,8 @@ from pathlib import Path
 
 from flask import Flask, Response, render_template, request
 
+from downloader import sanitize_filename
+
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "src"
@@ -169,6 +171,7 @@ def index():
     state = {
         "url": "",
         "output_dir": str(DEFAULT_OUTPUT_DIR),
+        "filename": "",
         "browser": "",
     }
     result = {
@@ -186,6 +189,7 @@ def index():
     if request.method == "POST":
         state["url"] = request.form.get("url", "").strip()
         state["output_dir"] = request.form.get("output_dir", "").strip()
+        state["filename"] = request.form.get("filename", "").strip()
         state["browser"] = request.form.get("browser", "").strip()
 
         if not state["url"]:
@@ -196,11 +200,20 @@ def index():
             result["ok"] = False
             result["title"] = "Browser value is invalid"
             result["message"] = "Invalid browser option."
+        elif state["filename"] and not sanitize_filename(state["filename"]):
+            result["ok"] = False
+            result["title"] = "File name is not usable"
+            result["message"] = (
+                "That file name contains only characters that cannot be used. "
+                "Try letters, numbers, spaces, or dashes."
+            )
         else:
             cmd = [sys.executable, str(SRC_DIR / "downloader.py"), state["url"]]
 
             if state["output_dir"]:
                 cmd.extend(["--output-dir", state["output_dir"]])
+            if state["filename"]:
+                cmd.extend(["--filename", state["filename"]])
             if state["browser"]:
                 cmd.extend(["--browser", state["browser"]])
 

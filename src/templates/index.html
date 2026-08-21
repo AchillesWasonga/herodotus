@@ -366,6 +366,19 @@
         display: none;
       }
 
+      .optional-tag {
+        margin-left: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.09);
+        color: var(--accent);
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        vertical-align: middle;
+      }
+
       @media (max-width: 920px) {
         .layout {
           grid-template-columns: 1fr;
@@ -471,6 +484,22 @@
                 placeholder="{{ state.output_dir }}"
               />
               <div class="field-help">Absolute paths work best. The folder will be created if needed.</div>
+            </div>
+
+            <div class="full">
+              <label for="filename">File Name <span class="optional-tag">optional</span></label>
+              <input
+                id="filename"
+                name="filename"
+                type="text"
+                value="{{ state.filename }}"
+                placeholder="Leave blank to name it automatically"
+              />
+              <div class="field-help">
+                No need to add <code>.mp4</code>. If the name is already taken, a number is
+                added instead of overwriting. Blank names include the video ID, so reels from
+                the same account never collide.
+              </div>
             </div>
 
             <div class="full submit-row">

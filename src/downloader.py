@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 import shutil
 import sys
 import time
@@ -12,6 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 
 BROWSER_CHOICES = ["safari", "chrome", "firefox", "edge", "brave", "chromium"]
+
+# Characters that are illegal in filenames on macOS/Windows, plus control chars.
+INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+MAX_FILENAME_LENGTH = 150
 
 LOGIN_REQUIRED_SIGNALS = [
     "login required",
@@ -45,8 +50,40 @@ def resolve_output_dir(raw_output_dir: str | None) -> Path:
     return output_dir.resolve()
 
 
-def build_options(output_dir: Path, browser: str | None) -> dict:
-    output_template = str(output_dir / "%(uploader|unknown_creator)s - %(title)s.%(ext)s")
+def sanitize_filename(raw_name: str) -> str:
+    """Turn user-supplied text into a safe filename stem (no directories, no extension)."""
+    name = INVALID_FILENAME_CHARS.sub("_", raw_name)
+    name = re.sub(r"\s+", " ", name).strip()
+    # Leading/trailing dots create hidden or ambiguous names ("..", ".foo").
+    name = name.strip(". ")
+    if name.lower().endswith(".mp4"):
+        name = name[:-4].strip(". ")
+    return name[:MAX_FILENAME_LENGTH].strip()
+
+
+def unique_stem(output_dir: Path, stem: str, suffix: str = ".mp4") -> str:
+    """Append ' (2)', ' (3)'... so an explicit name never overwrites or gets skipped."""
+    if not (output_dir / f"{stem}{suffix}").exists():
+        return stem
+
+    counter = 2
+    while (output_dir / f"{stem} ({counter}){suffix}").exists():
+        counter += 1
+    return f"{stem} ({counter})"
+
+
+def build_options(output_dir: Path, browser: str | None, custom_name: str | None = None) -> dict:
+    if custom_name:
+        stem = unique_stem(output_dir, custom_name)
+        # Escape '%' so yt-dlp does not read the user's text as a template field.
+        output_template = str(output_dir / f"{stem.replace('%', '%%')}.%(ext)s")
+    else:
+        # The id keeps names unique: Instagram titles every reel from an account
+        # identically ("Video by <handle>"), which otherwise collides on download.
+        output_template = str(
+            output_dir / "%(uploader|unknown_creator)s - %(title)s [%(id)s].%(ext)s"
+        )
+
     opts = {
         "format": "bv*+ba/b",
         "outtmpl": output_template,
@@ -166,22 +203,34 @@ def save_video_metadata(metadata: dict, output_dir: Path, final_path: Path | Non
     return metadata_path
 
 
-def extract_and_download(url: str, output_dir: Path, browser: str | None) -> tuple[dict, yt_dlp.YoutubeDL]:
-    opts = build_options(output_dir, browser)
+def extract_and_download(
+    url: str,
+    output_dir: Path,
+    browser: str | None,
+    custom_name: str | None = None,
+) -> tuple[dict, yt_dlp.YoutubeDL]:
+    opts = build_options(output_dir, browser, custom_name)
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
         return info, ydl
 
 
-def download_media(url: str, output_dir: Path, browser: str | None = None) -> None:
+def download_media(
+    url: str,
+    output_dir: Path,
+    browser: str | None = None,
+    custom_name: str | None = None,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     started_at = time.time()
 
     print(f"Starting download: {url}")
     print(f"Output directory: {output_dir}")
+    if custom_name:
+        print(f"Using file name: {custom_name}")
 
     try:
-        info, ydl = extract_and_download(url, output_dir, None)
+        info, ydl = extract_and_download(url, output_dir, None, custom_name)
     except yt_dlp.utils.DownloadError as exc:
         message = str(exc)
         if not should_retry_with_cookies(message):
@@ -192,7 +241,7 @@ def download_media(url: str, output_dir: Path, browser: str | None = None) -> No
             sys.exit(1)
         print(f"Public access blocked, retrying with {browser} cookies...")
         try:
-            info, ydl = extract_and_download(url, output_dir, browser)
+            info, ydl = extract_and_download(url, output_dir, browser, custom_name)
         except yt_dlp.utils.DownloadError as retry_exc:
             print(f"Download failed: {retry_exc}")
             sys.exit(1)
@@ -237,11 +286,23 @@ def main() -> None:
         default=None,
         help="Optional browser to load cookies from if the source requires a logged-in session",
     )
+    parser.add_argument(
+        "--filename",
+        default=None,
+        help="Optional file name for the saved video (extension is added automatically)",
+    )
 
     args = parser.parse_args()
     output_dir = resolve_output_dir(args.output_dir)
 
-    download_media(args.url, output_dir, browser=args.browser)
+    custom_name = None
+    if args.filename:
+        custom_name = sanitize_filename(args.filename)
+        if not custom_name:
+            print(f"Error: file name is not usable: {args.filename}")
+            sys.exit(1)
+
+    download_media(args.url, output_dir, browser=args.browser, custom_name=custom_name)
 
 
 if __name__ == "__main__":
