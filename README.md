@@ -265,6 +265,7 @@ maps them to a title, a plain-language message, and suggested fixes.
 ```
 mp4mp3dloader/
 ├── README.md              # This file
+├── LICENSE                # MIT
 ├── requirements.txt       # yt-dlp + Flask
 └── src/
     ├── downloader.py      # Download logic and CLI entry point
@@ -290,3 +291,23 @@ mp4mp3dloader/
   your logged-in account.
 - **Downloading is not the same as having rights to reuse.** Reposting or
   redistributing what you download is subject to platform terms and copyright.
+  The MIT license below covers *this tool's source code only* — it grants no
+  rights over any media you download with it.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — © 2026 Allan Wasonga. You are free
+to use, modify, and redistribute this code, including commercially, provided
+the copyright notice and license text are retained.
+
+This project depends on, but does not bundle, two separately licensed projects:
+
+| Dependency | License |
+|---|---|
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense (public domain) |
+| [Flask](https://flask.palletsprojects.com/) | BSD-3-Clause |
+
+`ffmpeg` is invoked as an external program rather than linked, and is licensed
+separately (LGPL or GPL depending on how your build was compiled).
